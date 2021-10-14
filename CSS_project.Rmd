@@ -59,10 +59,10 @@ The access keys are personal. To obtain them a Spotify account is required and i
 ```{r}
 
 ## Access keys 
-Sys.setenv(SPOTIFY_CLIENT_ID = '2c669a0abee947ab93e91c49243b7e49') 
-Sys.setenv(SPOTIFY_CLIENT_SECRET = '5e39ddf8cb46472d8b412e87c4563489')
+Sys.setenv(SPOTIFY_CLIENT_ID = 'xxxxx') 
+Sys.setenv(SPOTIFY_CLIENT_SECRET = 'xxxxx')
 access_token <- get_spotify_access_token()
-my_id <- 'luciahrovatin' # account name 
+my_id <- 'xxxx' # account name 
 
 ```
 
