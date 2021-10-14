@@ -2,8 +2,8 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from CSS_project import GetLyrics
 
 # Initialize with user access keys
-SPOTIPY_CLIENT_ID='2c669a0abee947ab93e91c49243b7e49'
-SPOTIPY_CLIENT_SECRET='5e39ddf8cb46472d8b412e87c4563489'
+SPOTIPY_CLIENT_ID='xxx'
+SPOTIPY_CLIENT_SECRET='xxx'
 user = SpotifyClientCredentials(SPOTIPY_CLIENT_ID, SPOTIPY_CLIENT_SECRET)
 
 # Download the lyrics banned after 9/11
