@@ -8,7 +8,7 @@ class GetLyrics:
     
     def __init__(self):
         self.user_id = 'luciahrovatin'
-        self.genius_key = '7Z0FyQZJxbFVrPLCp3KCDDY1MY0N2U_O1vER2BIBBWYSfNL19hAZEjzIkWkJccXD'
+        self.genius_key = 'xxxxxx'
         self.track_names = []
         self.track_id = []
         self.track_artists = []
