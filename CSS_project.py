@@ -7,7 +7,7 @@ from spotipy.oauth2 import SpotifyClientCredentials, SpotifyOAuth
 class GetLyrics:
     
     def __init__(self):
-        self.user_id = 'luciahrovatin'
+        self.user_id = 'xxxxxx'
         self.genius_key = 'xxxxxx'
         self.track_names = []
         self.track_id = []
