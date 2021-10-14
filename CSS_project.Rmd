@@ -1,0 +1,707 @@
+---
+title: "Mining patterns from song banned after 9/11"
+author: "Lucia Hrovatin"
+date: "28/06/2021"
+output: 
+  pdf_document:
+    number_sections: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+# Packages 
+
+```{r setup, include=FALSE}
+
+# Package for Spotify API 
+if(!require(spotifyr)) {
+    devtools::install_github('charlie86/spotifyr')
+    library(spotifyr)
+}
+
+library(tidyverse)
+library(knitr)
+library(dplyr)
+library(plotly)
+library(ggplot2)
+library(readr)
+library(tm)
+library(topicmodels)
+library(quanteda)
+library(quanteda.textplots)
+library(quanteda.textstats)
+library(randomForest)
+library(caret)
+library(tidytext)
+library(textplot)
+library(readtext)
+library(funModeling)
+library(e1071)
+library(class)
+library(GGally)
+library(stringdist)
+library(knitr)
+library(kableExtra)
+library(syuzhet)
+library(stringdist)
+library(textdata)
+library(ROCR)
+
+
+```
+
+
+# Access Spotify API 
+
+The access keys are personal. To obtain them a Spotify account is required and it must be logged in the page: [Spotify for Developers](https://developer.spotify.com/).
+
+
+```{r}
+
+## Access keys 
+Sys.setenv(SPOTIFY_CLIENT_ID = '2c669a0abee947ab93e91c49243b7e49') 
+Sys.setenv(SPOTIFY_CLIENT_SECRET = '5e39ddf8cb46472d8b412e87c4563489')
+access_token <- get_spotify_access_token()
+my_id <- 'luciahrovatin' # account name 
+
+```
+
+
+# Creation of datasets 
+
+## Dataset of banned songs 
+
+The playlist **CSS_project** contains the 183 songs temporarily banned after the 9/11 attacks (without their lyrics).
+To download the playlist, which is publicly accessible, it must be added to the user preferred playlists.     
+
+```{r}
+
+# Download the playlist 
+my_plists <- get_user_playlists(my_id)
+my_plistsCSS <- my_plists[my_plists$name == "CSS_project",]
+
+# Download the tracks in the chosen playlist 
+tracks <- get_playlist_tracks(my_plistsCSS$id)
+
+# Create relative dataset 
+create_dataset <- function(artists, track_id, popularity, tracks){
+  for (i in 1:nrow(tracks)){
+    df_artist <- as.data.frame(tracks$track.artists[i])
+    
+    # standardize the measure "popularity" to [0,1] 
+    standardized_pop <- tracks$track.popularity[i]
+    
+    # Append to vectors 
+    artists <- append(artists, df_artist$id[1])
+    track_id <- append(track_id, tracks$track.id[i])
+    popularity <- append(popularity, standardized_pop/100)
+  }
+  
+  # new dataset 
+  tracks_data <- data.frame("id" = track_id, 
+                          "artist_id" = artists,
+                          "popularity" = popularity)
+  features <- get_track_audio_features(tracks$track.id)
+  track_features <- merge(features, tracks_data, by="id")
+  
+  return(track_features)
+  }
+
+
+artists <- c()
+track_id <- c()
+popularity <- c()
+
+# first 100 songs 
+first_ds <- create_dataset(artists, track_id, popularity, tracks)
+
+# Adding more songs 
+tracks_2 <- get_playlist_tracks(my_plistsCSS$id, offset= 100)
+second_ds <- create_dataset(artists, track_id, popularity, tracks_2)
+
+# merging the 2 datasets 
+track_features <- rbind(first_ds, second_ds) 
+dim(track_features) 
+
+```
+
+The procedure has to be done in two steps due to the characteristics of Spotify API, which allows a download of maximum 100 songs per time.  
+
+
+
+```{r}
+
+# delete features not relevant for the project 
+del_feature<- c(6, 10, 12:18)
+songs_features <- track_features[,-del_feature]
+
+# EDA of features 
+spotify_histograms <- songs_features[,-c(1,10)]
+plot_num(spotify_histograms)
+
+ggpairs(spotify_histograms,
+        lower = list(continuous = wrap("smooth",
+        alpha = 0.4, size = 0.3, 
+        col = "cadetblue", 
+        fill = "black")), 
+        diag = list(continuous = wrap("densityDiag",
+                                      alpha=0.5, 
+                                      col = "black", 
+                                      fill = "cadetblue")),
+        upper = list(continuous = wrap("cor",size = 3)),
+        axisLabels = "none", proportions = "auto")+
+        theme(panel.grid.major = element_blank())
+
+```
+
+
+```{r}
+
+songs_lyrics <- read.csv('songs_lyrics.csv', header = TRUE, encoding = "UTF-8")
+
+# final data set having both lyrics and track features  
+songs_df <- merge(songs_features, songs_lyrics, by="id")
+head(songs_df, 3)
+
+# check if any NA value is present 
+anyNA(songs_df)
+
+```
+
+## Dataset of 100 futher songs 
+
+```{r}
+
+# Download the playlist 
+my_plists <- get_user_playlists(my_id)
+my_plistsCSS_2000 <- my_plists[my_plists$name == "CSS_2000",]
+
+# Get 100 tracks
+tracks_2000 <- get_playlist_tracks(my_plistsCSS_2000$id)
+
+artists <- c()
+track_id <- c()
+popularity <- c()
+
+# Create dataset
+ds_2000 <- create_dataset(artists, track_id, popularity, tracks_2000)
+
+# Delete features not relevant 
+del_feature<- c(6, 10, 12:18)
+songs_features <- ds_2000[,-del_feature]
+
+# Add lyrics 
+songs_lyrics_2000 <- read.csv('songs_2000.csv', header = TRUE, encoding = "UTF-8")
+songs_2000 <- merge(songs_features, songs_lyrics_2000, by="id")
+
+```
+
+
+## Final dataset 
+
+```{r}
+
+# add the label Censored = "1" and not censored = "0" 
+songs_2000$censored <- 0
+songs_df$censored <- 1
+
+# Final dataset 
+songs_ds <- rbind(songs_2000, songs_df)
+dim(songs_ds)
+
+```
+
+
+# Exploratory data Analysis  
+
+```{r}
+
+ggpairs(songs_ds[,-c(1,10,12,13)],
+        lower = list(continuous = wrap("smooth",
+        alpha = 0.4, size = 0.3, 
+        col = "cadetblue", 
+        fill = "black")), 
+        diag = list(continuous = wrap("densityDiag",
+                                      alpha=0.5, 
+                                      col = "black", 
+                                      fill = "cadetblue")),
+        upper = list(continuous = wrap("cor",size = 3)),
+        axisLabels = "none", proportions = "auto")+
+        theme(panel.grid.major = element_blank())
+
+```
+
+
+# LDA for lyrics features 
+
+## LDA on separate datasets 
+
+### Censored songs dataset 
+
+```{r}
+
+# Extract the corpus
+song_corpus <- corpus(songs_df[, dim(songs_df)[2]-1])
+song_corpus <- tolower(song_corpus)
+
+# Create vector of stop words 
+stop_words <- c("verse","chorus","Oh","ooh",
+                "oi","i'm-a","solo",
+                "na-na-na-na-na-na","na-na-na-na","na",
+                "ya","now","just", "know", "di",
+                "b","ah","got","take","hey", "because",
+                "cause","can","say","come","go",
+                "get","intro","yes","y'all","yeah",
+                "da", "ba","em", "de","johnny","ain't",
+                "two", "one","around", 
+                "wanna", "like", 
+                "post-chorus", "pre-chorus",
+                "ta_ta", "uh", "uh-huh", "yo", "ol", "ha",
+                "huh", "that'll", "chula", "bennie",
+                "annie", "instrumental", "whoa", "la",
+                "les", "anni", "see")
+
+# Create a Document Feature Matrix (DFM)
+dfm_song <- dfm(song_corpus,
+                  verbose = FALSE,
+                  remove_punct = TRUE, 
+                  remove_numbers = TRUE,
+                  remove_separators = TRUE,
+                  remove = c(stopwords("en"), 
+                  stop_words))
+
+
+# Perform topic modeling using Latent Dietrich Allocation getting 5 clusters 
+lda_spotify <- LDA(convert(dfm_song, 
+                           to = "topicmodels"),
+                   k = 5, control = list(seed = 12))
+
+# The top 10 terms per cluster will be printed
+get_terms(lda_spotify, 10)
+
+# Most common word per topic 
+ap_topics <- tidy(lda_spotify, matrix = "beta")
+
+most_common <- ap_topics %>%
+  group_by(topic)%>%slice_max(beta, n = 10) %>%
+  ungroup() %>% arrange(topic, -beta)
+
+most_common %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+
+# Network of co-occurrences between words
+set.seed(12)
+
+fcmat <- fcm(dfm_song, context = "document", tri = FALSE)
+feat <- names(topfeatures(fcmat, 30))
+
+fcm_select(fcmat, pattern = feat) %>%
+  textplot_network(min_freq = 0.7)
+
+
+```
+
+### Not censored songs 
+
+```{r}
+
+dfm_songs_2000 <- dfm(songs_2000$lyrics, 
+                  remove_punct = TRUE, 
+                  remove_numbers = TRUE,
+                  remove_separators = TRUE,
+                  remove = c(stopwords("en"), stop_words))
+
+# Get 5 clusters 
+lda_spotify <- LDA(convert(dfm_songs_2000,
+                           to = "topicmodels"),
+                   k = 5, control = list(seed = 12))
+get_terms(lda_spotify, 10)
+
+
+# Network of co-occurrences 
+set.seed(12)
+
+fcmat <- fcm(dfm_songs_2000, context = "document", tri = FALSE)
+feat <- names(topfeatures(fcmat, 30))
+
+fcm_select(fcmat, pattern = feat) %>%
+  textplot_network(min_freq = 0.8)
+
+```
+
+## LDA on the whole dataset 
+
+```{r}
+
+song_corpus <- corpus(songs_ds[, dim(songs_ds)[2]-1])
+song_corpus <- tolower(song_corpus)
+
+dfmat_songs <- dfm(song_corpus, 
+                  remove_punct = TRUE, 
+                  remove_numbers = TRUE,
+                  remove_separators = TRUE,
+                  remove = c(stopwords("en"),
+                             stop_words, 
+                              "will", "tell",
+                             "let", "away",
+                             "make","baby", "us"))
+
+ap_lda <- LDA(dfmat_songs, k = 2, control = list(seed = 150))
+get_terms(ap_lda, 10) 
+
+# Print most common words 
+ap_topics <- tidy(ap_lda, matrix = "beta")
+
+ap_top_terms <- ap_topics %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 10) %>% 
+  ungroup() %>%
+  arrange(topic, -beta)
+
+ap_top_terms %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(beta, term, fill = factor(topic))) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~ topic, scales = "free") +
+  scale_y_reordered()
+
+# Network of co-occurences 
+set.seed(12)
+fcmat <- fcm(dfmat_songs, context = "document", tri = FALSE)
+feat <- names(topfeatures(fcmat, 30))
+
+fcm_select(fcmat, pattern = feat) %>%
+  textplot_network(min_freq = 0.5)
+
+```
+
+
+## Cosine similarity  
+
+```{r}
+
+# Generate two vectors 
+cl1 <- ap_top_terms[ap_top_terms$topic == 1,2]
+cl2 <- ap_top_terms[ap_top_terms$topic == 2,2]
+
+# Cosine similarity 
+mean(stringdist(cl1$term,cl2$term,method="cosine"))
+
+```
+
+## Sentiment analysis 
+### Lexicon: Syuzhet
+
+```{r}
+# Topic 1
+syuzhet_vector_1 <- get_sentiment(cl1$term, method="syuzhet")
+syuzhet_vector_1
+
+# Topic 2
+syuzhet_vector_2 <- get_sentiment(cl2$term, method="syuzhet")
+syuzhet_vector_2
+
+# Average sentiment per topic 
+mean(syuzhet_vector_1)
+mean(syuzhet_vector_2)
+
+```
+
+The scale for sentiment scores using the **Syuzhet method** is decimal and ranges from -1 (indicating most negative) to +1 (indicating most positive).
+
+### Lexicon: NRC
+
+```{r}
+nrc <- ap_top_terms %>% 
+  inner_join(get_sentiments("nrc"), by = c("term" = "word")) %>% 
+  group_by(index = topic) %>% 
+  mutate(method = "NRC")
+nrc
+
+```
+
+### Lexicon: BING 
+
+```{r}
+bing <- ap_top_terms %>% 
+  inner_join(get_sentiments("bing"), by = c("term" = "word")) %>% 
+  group_by(index = topic) %>% 
+  mutate(method = "BING")
+bing
+
+```
+
+# Classification task 
+
+## Data preparation 
+
+```{r}
+# set censored 0/1 as factor 
+songs_ds$censored <- as.factor(songs_ds$censored)
+
+set.seed(25)
+
+# VALIDATION SET APPROACH 
+
+nvar <- ncol(songs_ds) - 4 
+perc <- 0.7
+n <- nrow(songs_ds)
+train <- sample(1:n, n*perc)
+
+# training set 
+train_df <- songs_ds[train,]  
+y_train <- train_df$censored
+
+# test set
+test_df <- songs_ds[-train,]  
+y_test <- test_df$censored
+
+# Reshape training and test set 
+x_train <- train_df[,- c(1, 10, 12, 13)]
+x_test <- test_df[,-c(1, 10 ,12, 13)]
+
+# Misclassification error rate 
+error_rate <- function(predicted_value, true_value) {
+  mean(true_value != predicted_value)
+}
+
+```
+
+## Random Forest
+
+```{r}
+
+set.seed(25)
+
+# Summary matrix to update  
+final_matrix <- matrix(nrow = nvar, ncol =2)
+
+# Tuning parameter mtry: predictors' sample size (m)
+
+for (m_value in 1:nvar){
+  n <- 300
+  rf_songs <- randomForest(x_train, y_train,
+                              xtest = x_test,
+                              ytest = y_test, 
+                              mtry = m_value, 
+                              ntree = n)
+ 
+   # Error of all trees fitted during training: Out-of-bag error  
+  OOB <- rf_songs$err.rate[n]
+
+  # Misclassification error on test set 
+  mse_test <- rf_songs$test$err.rate[n]
+
+  # Upload matrix 
+   final_matrix[m_value, 1] <- mse_test
+   final_matrix[m_value, 2] <- OOB
+}
+
+# Resulting matrix 
+result_df <- as.data.frame(final_matrix) %>%
+  rename(Test.error = V1, OOB = V2)
+
+# minimum values 
+min_test <- which.min(result_df$Test.error)
+min_train <- which.min(result_df$OOB)
+
+minimum <- data.frame(
+  "Test min" = c(min_test,result_df[min_test,1]),
+  "OBB min" = c(min_train,result_df[min_train,2]))
+
+knitr::kable(minimum, caption = "Minimum for m")%>%
+  kable_styling(latex_options = "hold_position")
+
+# Visualize the results 
+par(mfrow = c(1,2))
+
+plot(1:nvar, result_df$OOB, type = "l", 
+     col = "grey", lwd = 2, 
+     xlab = "m", ylab = "OOB on training")
+points(x= min_train, y = result_df[min_train, 2], 
+       col = "tomato3", pch = 19 )
+
+plot(1:nvar, result_df$Test.error, type = "l", 
+     col = "grey", lwd = 2, 
+     xlab = "m", ylab = "Test error rate")
+points(x= min_test, y = result_df[min_test, 1], 
+       col = "tomato3", pch = 19)
+
+```
+
+According to the random seed set, the minimum value in Out-of-Bag error (OOB) and the test error is reached for different $m$. A common downside of minimizing the training error (in this case, OOB) is a risk of overfitting and a much higher test error. 
+
+```{r}
+
+# Optimal RF model 
+n_trees <- 300
+
+rf_optimal <- randomForest(y_train ~ ., 
+                           data = x_train,
+                           importance = TRUE, 
+                           mtry = min_test, 
+                           ntree = n_trees)
+
+# prediction on test set 
+pred_rf <- predict(rf_optimal, newdata = x_test)
+
+# Misclassification error 
+e_rf <- error_rate(pred_rf, y_test)
+
+
+# RF model with default mtry = sqrt(nvar) 
+rf_class <- randomForest(y_train ~ ., 
+                           data = x_train,
+                           importance = TRUE, 
+                           mtry = sqrt(nvar), 
+                           ntree = n_trees)
+
+# prediction on test set 
+pred_rf_class <- predict(rf_class, newdata = x_test)
+
+# Misclassification error 
+e_rf_class <- error_rate(pred_rf_class, y_test)
+
+
+```
+
+
+```{r}
+
+# Plots of variable importance  
+knitr::kable(importance(rf_optimal))%>%
+  kable_styling(latex_options = "hold_position")
+
+varImpPlot(rf_optimal, main = "Variable Importance Plot for RF optimal")
+
+```
+
+
+## Other classifier 
+
+```{r}
+
+set.seed(30)
+
+# SVM 
+svmfit <- svm(y_train ~ ., data=x_train, kernel="radial", gamma=1, cost=1)
+
+ypred <- predict(svmfit, newdata = x_test)
+
+# Misclassification error
+e_svm <- error_rate(ypred, y_test)
+
+# KNN 
+
+kseq <- c(seq(1:10), 20, 50, 100)
+error_tr <- c()
+error_ts <- c()
+
+# Tuning parameter k
+for (k in kseq) {
+  pred_tr <- knn(x_train, x_train, y_train, k = k)
+  pred_ts <- knn(x_train, x_test, y_train, k = k, prob = TRUE)
+  err_tr <- error_rate(pred_tr, y_train)
+  err_ts <- error_rate(pred_ts, y_test)
+  error_tr <- append(error_tr, err_tr)
+  error_ts <- append(error_ts, err_ts)
+}
+
+par(mfrow = c(1,1))
+plot(1, type = "n", 
+     xlim = c(0.01, 1), 
+     ylim = c(0, 0.6),
+     log = "x", xlab = "1/K",ylab = "Error Rate", 
+     main = "K-nn classification")
+lines(1/kseq, error_tr, type = "b", col = "salmon")
+lines(1/kseq, error_ts, type = "b", col = "lightblue")
+legend('topright', 
+       legend = c('Training error',
+                  'Test error'),
+       col = c('salmon','lightblue'),
+       lty = c(1,1,3), cex = 0.65, box.col = "white")
+
+```
+
+The trends of k-NN training error rate and test error rate are represented with respect to the increasing level of flexibility (i.e., a decreasing number of neighbors **k**). Usually an _elbow effect_ is generated, meaning that the test error curve jumps and the training error curve decreases.
+
+``` {r}
+# K-NN best model 
+knn.pred <- knn(x_train, x_test, y_train, k=7)
+
+# Misclassification error
+e_knn <- error_rate(knn.pred, y_test)
+
+```
+
+
+```{r}
+# Summary table 
+err_table <- data.frame("RF" = e_rf, 
+                        "RF_clas" = e_rf_class,
+                        "SVM" = e_svm,
+                        "KNN" = e_knn)
+
+knitr::kable(err_table, caption = "Summary table of missclassification errors")%>%
+  kable_styling(latex_options = "hold_position")
+
+```
+
+# ROC curves and relative AUC
+
+```{r}
+## RF
+pred_rf <- predict(rf_optimal, newdata = x_test,
+                   type = "prob")
+prob_rf <- pred_rf[,2]
+
+## KNN
+knn.pred <- knn(x_train, x_test, y_train, k=7, prob = TRUE)
+prob_knn <- attr(knn.pred, which = "prob")
+prob_knn <- 2*ifelse(knn.pred == "0", 1-prob_knn, prob_knn) - 1
+
+##SVM
+pred_svm <- predict(svmfit, newdata = x_test, decision.values = TRUE)
+pred_svm <- attr(pred_svm, which = "decision.values")
+
+
+# Generate the matrix of predictions 
+tot_preds <- cbind(prob_rf, 
+                   prob_knn, 
+                   pred_svm)
+
+# Generate the matrix of labels  
+tot_labels <- cbind(y_test,
+                    y_test,
+                    y_test)
+
+# prediction object for each method  
+pred <- prediction(tot_preds, tot_labels)
+perf <- performance(pred, "tpr", "fpr")
+
+# Final plot of ROC curves 
+color <- 1:3
+plot(perf, col = as.list(color), 
+     main = "ROC")
+abline(0, 1, col="gray", lty=2)
+
+legend("bottomright",
+       c("RF", "k-NN", "SVM"), 
+       lty = 1, col = color, 
+       cex = 0.65, box.col = "white")
+
+# AUC: area under the curve 
+res_auc <- performance(pred, "auc")
+
+lst <- c("RF", "k-NN", "SVM")
+for (x in 1:3){
+  print(paste("AUC ", lst[x], ": ",
+              res_auc@y.values[x], sep = ""))
+}
+
+```
+
