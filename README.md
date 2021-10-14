@@ -1,13 +1,13 @@
-# CSS_project-
-Project that aims at mining patterns from songs banned after 9/11. D
-eveloped during the course of Computational Social Sciences at the University of Trento, A.Y. 2020/2021
+# Mining patterns from songs banned after the 9/11
+Project that aims at mining patterns from songs banned after 9/11. 
+Developed during the course of Computational Social Sciences at the University of Trento, A.Y. 2020/2021
 
 ---
 # 1 Data Collection
 The data collection follows a two steps procedure.
 
 ## 1. Genius API and Spotify API implemented in Python.
-The script connects via the (Spotify API)[https://developer.spotify.com/documentation/web-api/] to the user account and downloads id’s,
+The script connects via the [Spotify API](https://developer.spotify.com/documentation/web-api/) to the user account and downloads id’s,
 artist name(s), and track title of the chosen playlist:
 
 - CSS project
@@ -15,7 +15,7 @@ artist name(s), and track title of the chosen playlist:
 - CSS 2000
 
 Using the song title and artist name, the songs are searched in the collection
-of (Genius.com)[https://genius.com/]. If the song is found, its lyrics is downloaded and stored in a csv
+of [Genius.com](https://genius.com/). If the song is found, its lyrics is downloaded and stored in a csv
 file together with the corresponding Spotify track id.
 
 ## 2. Spotify API implemented in R
