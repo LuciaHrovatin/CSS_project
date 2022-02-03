@@ -1,6 +1,5 @@
 # <p align = "center"> Mining patterns from songs banned after the 9/11 </p> 
-Project that aims at mining patterns from songs banned after 9/11. 
-Developed during the course of Computational Social Sciences at the University of Trento, A.Y. 2020/2021
+Final project of the course of Computational Social Sciences at the University of Trento (A.Y. 2020/2021) and aims at mining patterns from songs banned after the 9/11. 
 
 ---
 ## Prerequisites
